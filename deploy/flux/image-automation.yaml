@@ -1,0 +1,64 @@
+---
+# Flux image automation for met-to-wg on GHCR.
+#
+# Wiring lives in the central GitOps repo (basilar/talos-linux) under
+# clusters/homelab/apps/met-to-wg/: it defines the GitRepository (SSH, with
+# a deploy key that has write access, committed as a SOPS-encrypted Secret)
+# and the Flux Kustomization that applies this directory.
+#
+# GHCR package is public, so no pull/scan credentials are needed here.
+
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageRepository
+metadata:
+  name: met-to-wg
+  namespace: flux-system
+spec:
+  image: ghcr.io/basilar/met-to-wg
+  interval: 5m
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImagePolicy
+metadata:
+  name: met-to-wg
+  namespace: flux-system
+spec:
+  imageRepositoryRef:
+    name: met-to-wg
+  # Match the "main-<unix-ts>-<sha>" tags produced by the GitHub Actions
+  # workflow and pick the highest timestamp. Switch to semver if you move
+  # to tagged releases.
+  filterTags:
+    pattern: '^main-(?P<ts>[0-9]+)-[a-f0-9]+$'
+    extract: '$ts'
+  policy:
+    numerical:
+      order: asc
+---
+apiVersion: image.toolkit.fluxcd.io/v1beta2
+kind: ImageUpdateAutomation
+metadata:
+  name: met-to-wg
+  namespace: flux-system
+spec:
+  interval: 2m
+  sourceRef:
+    kind: GitRepository
+    name: met-to-wg
+  git:
+    checkout:
+      ref:
+        branch: main
+    commit:
+      author:
+        name: fluxcdbot
+        email: fluxcdbot@users.noreply.github.com
+      messageTemplate: |
+        chore(deploy): bump image to {{range .Changed.Changes}}{{println .NewValue}}{{end}}
+
+        [skip ci]
+    push:
+      branch: main
+  update:
+    path: ./deploy/flux
+    strategy: Setters

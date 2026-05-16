@@ -1,0 +1,20 @@
+---
+# Primary storage (live SQLite + WAL) uses Longhorn via the StatefulSet's
+# volumeClaimTemplates, so it doesn't appear here.
+#
+# This PVC binds the NFS-backed PV created in the cluster's
+# infrastructure/nfs-diskstation manifest. Litestream writes replica
+# segments here; the scraper container never sees this mount.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: met-to-wg-backups
+  namespace: met-to-wg
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs-diskstation
+  volumeName: nfs-diskstation-met-to-wg
+  resources:
+    requests:
+      storage: 10Gi

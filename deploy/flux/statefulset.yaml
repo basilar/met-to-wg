@@ -1,0 +1,139 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: met-to-wg
+  namespace: met-to-wg
+  labels:
+    app.kubernetes.io/name: met-to-wg
+spec:
+  clusterIP: None  # headless — required by StatefulSet, no traffic served
+  selector:
+    app.kubernetes.io/name: met-to-wg
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: met-to-wg
+  namespace: met-to-wg
+  labels:
+    app.kubernetes.io/name: met-to-wg
+    app.kubernetes.io/component: scraper
+spec:
+  serviceName: met-to-wg
+  replicas: 1
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: met-to-wg
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: met-to-wg
+        app.kubernetes.io/component: scraper
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Restore SQLite from NFS replica before the scraper starts.
+        # `-if-replica-exists` makes the first-ever start a no-op (empty DB).
+        - name: litestream-restore
+          image: litestream/litestream:0.3.13
+          args:
+            - restore
+            - -if-replica-exists
+            - -config
+            - /etc/litestream.yml
+            - /data/weather.db
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: nas
+              mountPath: /mnt/nas
+            - name: litestream-config
+              mountPath: /etc/litestream.yml
+              subPath: litestream.yml
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      containers:
+        - name: scraper
+          # Flux's ImageUpdateAutomation rewrites this line whenever a newer
+          # tag satisfies the ImagePolicy. Keep the marker comment.
+          image: ghcr.io/basilar/met-to-wg:main-0000000000-0000000 # {"$imagepolicy": "flux-system:met-to-wg"}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DATABASE_PATH
+              value: /data/weather.db
+          envFrom:
+            # Provides CSOPAK/FURED/ALMADI_WEATHER_UID + _API_PASSWORD,
+            # plus optional WINDGURU_BASE_URL / HEALTHCHECK_URL / tuning vars.
+            # Create as SOPS-encrypted Secret in the cluster repo
+            # (apps/met-to-wg/secrets/met-to-wg-secrets.sops.yaml).
+            - secretRef:
+                name: met-to-wg-secrets
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+        - name: litestream
+          image: litestream/litestream:0.3.13
+          args:
+            - replicate
+            - -config
+            - /etc/litestream.yml
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: nas
+              mountPath: /mnt/nas
+            - name: litestream-config
+              mountPath: /etc/litestream.yml
+              subPath: litestream.yml
+          resources:
+            requests:
+              cpu: 5m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+      volumes:
+        - name: nas
+          persistentVolumeClaim:
+            claimName: met-to-wg-backups
+        - name: litestream-config
+          configMap:
+            name: met-to-wg-litestream
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: longhorn
+        resources:
+          requests:
+            storage: 5Gi

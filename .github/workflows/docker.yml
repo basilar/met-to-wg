@@ -40,8 +40,11 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          # The `main-<unix-ts>-<sha>` tag is the one Flux's ImagePolicy
+          # sorts on (numerical, ascending by timestamp). Keep the format
+          # stable or update deploy/flux/image-automation.yaml in lockstep.
           tags: |
-            type=ref,event=branch
+            type=raw,value=main-{{date 'X'}}-{{sha}},enable={{is_default_branch}}
             type=ref,event=pr
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}

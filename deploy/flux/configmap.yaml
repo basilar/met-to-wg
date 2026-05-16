@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: met-to-wg-litestream
+  namespace: met-to-wg
+data:
+  # Replica `path` is the directory Litestream uses to store generations,
+  # snapshots, and WAL segments — not the DB file itself. The init container
+  # restores from the same config so paths must stay in sync.
+  litestream.yml: |
+    dbs:
+      - path: /data/weather.db
+        replicas:
+          - type: file
+            path: /mnt/nas/weather.db
