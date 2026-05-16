@@ -1,0 +1,1 @@
+sops exec-env secrets.enc.yaml './met-to-wg'

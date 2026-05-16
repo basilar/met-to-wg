@@ -1,0 +1,4 @@
+creation_rules:
+  - path_regex: secrets(\.enc)?\.yaml$
+    # Public half of ~/.config/sops/age/keys.txt — replace if you use another machine.
+    age: age19vcs2wk277rpmnl32k346xxsanun7y5ulw0zrus03twnmk565ckq8r4hap

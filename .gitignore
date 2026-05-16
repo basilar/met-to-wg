@@ -1,0 +1,20 @@
+# Build artefacts
+/met-to-wg
+*.test
+*.out
+
+# Local DB / WAL files
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Decrypted secrets — only the encrypted .enc.yaml form should be committed
+secrets.yaml
+secrets.json
+.env
+.env.*
+
+# Editor / OS junk
+.DS_Store
+.idea/
+.vscode/
