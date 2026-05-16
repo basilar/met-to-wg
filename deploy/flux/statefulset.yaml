@@ -1,4 +1,3 @@
----
 apiVersion: v1
 kind: Service
 metadata:
@@ -7,7 +6,7 @@ metadata:
   labels:
     app.kubernetes.io/name: met-to-wg
 spec:
-  clusterIP: None  # headless — required by StatefulSet, no traffic served
+  clusterIP: None # headless — required by StatefulSet, no traffic served
   selector:
     app.kubernetes.io/name: met-to-wg
 ---
@@ -68,7 +67,7 @@ spec:
         - name: scraper
           # Flux's ImageUpdateAutomation rewrites this line whenever a newer
           # tag satisfies the ImagePolicy. Keep the marker comment.
-          image: ghcr.io/basilar/met-to-wg:main-0000000000-0000000 # {"$imagepolicy": "flux-system:met-to-wg"}
+          image: ghcr.io/basilar/met-to-wg:main-1778964971-4b32a8c # {"$imagepolicy": "flux-system:met-to-wg"}
           imagePullPolicy: IfNotPresent
           env:
             - name: DATABASE_PATH
