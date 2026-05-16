@@ -62,6 +62,110 @@ For local dev without SOPS:
     export CSOPAK_WEATHER_API_PASSWORD=...
     ./met-to-wg
 
+## Docker
+
+A minimal multi-stage `Dockerfile` produces a `scratch`-based image
+containing only the static binary, the system CA bundle (for HTTPS),
+and an empty `/data` directory owned by UID 65534. No shell, no
+package manager.
+
+Build (requires `docker buildx` — install via `brew install
+docker-buildx` if you only have the legacy builder):
+
+    docker buildx build -t met-to-wg --load .
+
+`--load` puts the image into your local Docker so `docker run` can
+find it. Drop it (and add `--push`) when pushing to a registry. For
+multi-arch:
+
+    docker buildx build --platform linux/amd64,linux/arm64 \
+      -t ghcr.io/you/met-to-wg:latest --push .
+
+Run with secrets injected by SOPS:
+
+    sops exec-env secrets.enc.yaml \
+      'docker run -d --name met-to-wg --restart unless-stopped \
+         -e DATABASE_PATH=/data/observations.sqlite \
+         -e CSOPAK_WEATHER_UID -e CSOPAK_WEATHER_API_PASSWORD \
+         -e FURED_WEATHER_UID  -e FURED_WEATHER_API_PASSWORD \
+         -e ALMADI_WEATHER_UID -e ALMADI_WEATHER_API_PASSWORD \
+         -e HEALTHCHECK_URL -e WINDGURU_BASE_URL \
+         -e INTERVAL -e FETCH_TIMEOUT -e UPLOAD_TIMEOUT \
+         -e CONCURRENCY -e USER_AGENT \
+         -v met-to-wg-data:/data \
+         met-to-wg'
+
+`sops exec-env` decrypts into the environment for the lifetime of the
+`docker run` invocation; each `-e VAR` (without `=value`) forwards
+that variable from the host env into the container. The named volume
+`met-to-wg-data` persists the SQLite DB across container restarts.
+
+Alternative without enumerating every variable — let SOPS write a
+dotenv file Docker can read directly:
+
+    sops -d --output-type dotenv secrets.enc.yaml > /tmp/met-to-wg.env
+    docker run -d --name met-to-wg --restart unless-stopped \
+      --env-file /tmp/met-to-wg.env \
+      -v met-to-wg-data:/data \
+      met-to-wg
+    rm /tmp/met-to-wg.env
+
+The tradeoff: secrets briefly hit disk. Fine on a personal machine,
+worth thinking about on shared hosts.
+
+Operations:
+
+    docker logs -f met-to-wg            # tail JSON logs
+    docker stats met-to-wg              # live CPU/memory
+    docker stop met-to-wg               # graceful stop (SIGTERM)
+    docker inspect met-to-wg
+
+Inspect the SQLite DB from the host:
+
+    docker run --rm -v met-to-wg-data:/data keinos/sqlite3 \
+      sqlite3 /data/observations.sqlite \
+      "SELECT location, COUNT(*), MAX(datetime) FROM observation GROUP BY location;"
+
+A healthy first log line shows the loaded stations and the
+healthcheck status — e.g.
+`{"msg":"met-to-wg starting","stations":["csopak","fured","almadi"],"healthcheck_enabled":true}`.
+The happy path through a tick is silent; only errors are logged. CPU
+should spike briefly once per `INTERVAL` and otherwise sit at zero.
+
+A note on volume permissions: the container runs as UID 65534 (no
+root, no shell). The image bakes in `/data` with the right ownership
+so a fresh named volume inherits it on first mount. If you bind-mount
+a host directory instead of using a named volume, `chown 65534:65534`
+the directory yourself first — Docker does not adjust bind-mount
+ownership.
+
+### CI: image builds on every push
+
+`.github/workflows/docker.yml` builds and publishes the image to
+GitHub Container Registry on every push to `main` and every tag
+matching `v*`. Pull requests build for verification but do not push.
+
+- **Registry:** `ghcr.io/<owner>/<repo>` — uses the built-in
+  `GITHUB_TOKEN`; no secrets to configure.
+- **Platforms:** `linux/amd64` and `linux/arm64` (QEMU + buildx).
+- **Tags** (via `docker/metadata-action`):
+  - branch name (`main` push → `:main`)
+  - short commit SHA (`:sha-abc1234`) on every build
+  - semver from git tags (`v1.2.3` → `:1.2.3`, `:1.2`, `:1`)
+  - `:latest` on the default branch
+- **Cache:** GHA cache for buildx layers — incremental rebuilds are
+  fast.
+
+First-time setup: after the workflow's first successful push, the
+package appears under the repo's *Packages* tab as private by default.
+Make it public (or grant pull rights to whatever pulls it) via
+*Package settings → Change visibility*.
+
+Pull and run a specific tag:
+
+    docker pull ghcr.io/basilar/met-to-wg:main
+    docker run --rm ghcr.io/basilar/met-to-wg:main      # smoke test, fails on missing env
+
 ## Tests
 
     make test              # full suite

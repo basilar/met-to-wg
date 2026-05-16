@@ -1,0 +1,35 @@
+.git
+.gitignore
+.github
+
+# Build artefacts
+/met-to-wg
+*.test
+*.out
+
+# Local DB / WAL files
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Secrets — never bake into an image
+secrets.yaml
+secrets.json
+.env
+.env.*
+.sops.yaml
+
+# Editor / OS junk
+.DS_Store
+.idea/
+.vscode/
+
+# Docs & repo metadata not needed to build
+README.md
+CLAUDE.md
+LICENSE
+Makefile
+
+# Docker files themselves
+Dockerfile
+.dockerignore

@@ -24,6 +24,19 @@ make run         # sops exec-env secrets.enc.yaml 'go run ./cmd/met-to-wg'
 Run a single test: `go test ./internal/processor -run TestTick_DedupsAcrossTicks -v`.
 Coverage by package: `go test -cover ./...`.
 
+Container build/run (multi-stage, `scratch` final image — see `Dockerfile`):
+
+```
+docker buildx build -t met-to-wg --load .
+sops exec-env secrets.enc.yaml \
+  'docker run --rm --name met-to-wg \
+     -e DATABASE_PATH=/data/observations.sqlite \
+     -e CSOPAK_WEATHER_UID -e CSOPAK_WEATHER_API_PASSWORD \
+     -e FURED_WEATHER_UID  -e FURED_WEATHER_API_PASSWORD \
+     -e ALMADI_WEATHER_UID -e ALMADI_WEATHER_API_PASSWORD \
+     -v met-to-wg-data:/data met-to-wg'
+```
+
 Running the binary requires env vars (see README "Configuration reference"). The
 normal path is `sops exec-env secrets.enc.yaml './met-to-wg'`. For local dev
 without SOPS, export `DATABASE_PATH` plus at least one station's
@@ -102,3 +115,28 @@ direction:
 `secrets.yaml` is gitignored plaintext; `secrets.enc.yaml` is the SOPS-encrypted
 form and is safe to commit. The binary itself only reads env vars — never read
 secret files directly from Go code.
+
+## Container & CI
+
+`Dockerfile` is a two-stage build: `golang:1.26-alpine` compiles a static
+(`CGO_ENABLED=0`) binary, then `scratch` carries only the binary,
+`/etc/ssl/certs/ca-certificates.crt` (for outbound HTTPS), and an empty
+`/data` directory pre-chowned to UID 65534. The runtime image has no shell
+and runs as `USER 65534:65534`.
+
+Two invariants worth preserving:
+- **`/data` must stay owned by 65534 in the image.** A fresh Docker named
+  volume inherits its mountpoint's ownership on first mount; if `/data`
+  reverts to root, the unprivileged process can't open the SQLite file and
+  the only symptom is `unable to open database file: out of memory (14)`
+  (modernc.org/sqlite's stringification of `SQLITE_CANTOPEN`).
+- **The Alpine builder stage installs `ca-certificates`** so the CA bundle
+  copied into `scratch` is non-empty. Without it, all outbound TLS
+  (source pages, Windguru, healthchecks.io) fails with `x509: certificate
+  signed by unknown authority`.
+
+`.github/workflows/docker.yml` builds and pushes to
+`ghcr.io/<owner>/<repo>` via `docker/build-push-action` on every push to
+`main` and every `v*` tag (PRs build but don't push). Multi-arch
+(`linux/amd64,linux/arm64`) and uses the built-in `GITHUB_TOKEN` for auth —
+no repo secrets to configure.
