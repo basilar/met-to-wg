@@ -20,6 +20,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -75,6 +76,7 @@ func (c *Client) Upload(ctx context.Context, uid, password string, fields map[st
 	}
 
 	endpoint := c.BaseURL + "?" + params.Encode()
+	slog.Info("windguru request", "uid", uid, "salt", salt, "hash", hash, "url", endpoint)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return fmt.Errorf("windguru: build request: %w", err)
