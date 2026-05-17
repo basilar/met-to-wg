@@ -5,6 +5,7 @@ resources:
   - configmap.yaml
   - pvc.yaml
   - statefulset.yaml
+  - ingress.yaml
   - image-automation.yaml
 commonLabels:
   app.kubernetes.io/name: met-to-wg

@@ -123,12 +123,15 @@ direction:
   `Upload` fails, the row is in SQLite and the dedup check will prevent any
   future tick from retrying the upload. Backfill via Windguru's UI if needed.
 - **Per-tick station failures are swallowed and logged**, never propagated.
-- **The status server is CLI-only.** `STATUS_ADDR` is deliberately absent from
-  the k8s deployment; do not add it without thinking about exposure (no auth,
-  reads the live SQLite DB). Pre-existing rows from before the
-  `uploaded_at` migration have NULL in that column, so upload counts can look
-  artificially low until enough fresh observations accumulate — this is not a
-  bug to backfill.
+- **Status server exposure.** The HTTP listener is opt-in via `STATUS_ADDR`.
+  The k8s deployment sets it to `:8080` and routes a `met-to-wg-status`
+  ClusterIP Service through a Traefik Ingress at `met-to-wg.basilar.local`.
+  The page has no auth and reads the live SQLite DB; the deployment relies on
+  the LAN being trusted. If that assumption changes, add a Traefik basic-auth
+  middleware (or unset `STATUS_ADDR` to disable the listener entirely).
+  Pre-existing rows from before the `uploaded_at` migration have NULL in that
+  column, so upload counts can look artificially low until enough fresh
+  observations accumulate — this is not a bug to backfill.
 
 ## Secrets
 

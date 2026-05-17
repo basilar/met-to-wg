@@ -76,6 +76,14 @@ spec:
           env:
             - name: DATABASE_PATH
               value: /data/weather.db
+            # Status page served on 8080; surfaced via the met-to-wg-status
+            # Service + Ingress (see ingress.yaml).
+            - name: STATUS_ADDR
+              value: ":8080"
+          ports:
+            - name: status
+              containerPort: 8080
+              protocol: TCP
           envFrom:
             # Provides CSOPAK/FURED/ALMADI_WEATHER_UID + _API_PASSWORD,
             # plus optional WINDGURU_BASE_URL / HEALTHCHECK_URL / tuning vars.

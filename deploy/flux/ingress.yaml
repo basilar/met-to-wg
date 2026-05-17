@@ -1,0 +1,47 @@
+---
+# ClusterIP Service in front of the StatefulSet pods for HTTP traffic.
+# The existing `met-to-wg` Service stays headless (StatefulSet requirement,
+# no traffic); this one is what Traefik routes to.
+apiVersion: v1
+kind: Service
+metadata:
+  name: met-to-wg-status
+  namespace: met-to-wg
+  labels:
+    app.kubernetes.io/name: met-to-wg
+    app.kubernetes.io/component: status
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: met-to-wg
+  ports:
+    - name: http
+      port: 80
+      targetPort: status
+      protocol: TCP
+---
+# Traefik Ingress for the local LAN hostname. No TLS — `.local` cert chains
+# aren't worth the hassle here. No auth — the page is read-only and lives
+# on a trusted LAN; if that changes, gate it with a basic-auth middleware
+# (Traefik) or a different controller.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: met-to-wg
+  namespace: met-to-wg
+  labels:
+    app.kubernetes.io/name: met-to-wg
+    app.kubernetes.io/component: status
+spec:
+  ingressClassName: traefik
+  rules:
+    - host: met-to-wg.basilar.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: met-to-wg-status
+                port:
+                  name: http
