@@ -24,6 +24,7 @@ import (
 	"net/url"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"met-to-wg/internal/httpx"
@@ -83,9 +84,15 @@ func (c *Client) Upload(ctx context.Context, uid, password string, fields map[st
 		return fmt.Errorf("windguru: upload: %w", err)
 	}
 	defer resp.Body.Close()
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return fmt.Errorf("windguru: status %d: %s", resp.StatusCode, string(body))
+	}
+	// Windguru returns 200 OK with a plain-text body — "OK" on success,
+	// "ERROR: <reason>" (e.g. bad hash, unknown station) on failure. The HTTP
+	// status alone isn't enough to tell them apart.
+	if trimmed := strings.TrimSpace(string(body)); strings.HasPrefix(strings.ToUpper(trimmed), "ERROR") {
+		return fmt.Errorf("windguru: %s", trimmed)
 	}
 	return nil
 }

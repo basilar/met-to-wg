@@ -92,6 +92,20 @@ func TestUpload_Non2xxReturnsError(t *testing.T) {
 	assert.Contains(t, err.Error(), "status 403")
 }
 
+func TestUpload_ErrorBodyOn2xxReturnsError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ERROR: bad hash"))
+	}))
+	defer srv.Close()
+
+	c := New(srv.URL, time.Second)
+	c.Now = fixedClock
+	err := c.Upload(context.Background(), "u", "p", map[string]string{"wind_avg": "1"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ERROR: bad hash")
+}
+
 func TestUpload_ContextCancellation(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-r.Context().Done()
