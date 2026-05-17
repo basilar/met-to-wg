@@ -24,6 +24,10 @@ type Config struct {
 	Concurrency     int
 	FetchTimeout    time.Duration
 	UploadTimeout   time.Duration
+	// StatusAddr is the listen address (e.g. "127.0.0.1:8080") for the local
+	// HTML status page. Empty disables the server entirely — the cluster
+	// deployment leaves it unset on purpose.
+	StatusAddr string
 
 	Csopak        StationCreds
 	Balatonfured  StationCreds
@@ -56,6 +60,7 @@ func LoadFromEnv(getenv func(string) string) (*Config, error) {
 		WindguruBaseURL: getenv("WINDGURU_BASE_URL"),
 		HealthcheckURL:  getenv("HEALTHCHECK_URL"),
 		UserAgent:       getenv("USER_AGENT"),
+		StatusAddr:      getenv("STATUS_ADDR"),
 
 		Csopak: StationCreds{
 			UID: getenv("CSOPAK_WEATHER_UID"), Password: getenv("CSOPAK_WEATHER_API_PASSWORD"),

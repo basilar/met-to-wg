@@ -89,7 +89,7 @@ func TestMigrateIsIdempotent(t *testing.T) {
 
 	var migrationCount int
 	require.NoError(t, second.db.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&migrationCount))
-	assert.Equal(t, 1, migrationCount, "the one migration we ship should be recorded exactly once")
+	assert.Equal(t, 2, migrationCount, "shipped migrations should each be recorded exactly once")
 }
 
 func TestCountObservations(t *testing.T) {

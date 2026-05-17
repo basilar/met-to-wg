@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"met-to-wg/internal/config"
 	"met-to-wg/internal/healthcheck"
@@ -18,6 +20,7 @@ import (
 	"met-to-wg/internal/processor"
 	"met-to-wg/internal/scheduler"
 	"met-to-wg/internal/stations"
+	"met-to-wg/internal/status"
 	"met-to-wg/internal/storage"
 	"met-to-wg/internal/windguru"
 )
@@ -78,8 +81,37 @@ func run() error {
 		"interval", cfg.Interval,
 		"db", cfg.DatabasePath,
 		"healthcheck_enabled", cfg.HealthcheckURL != "",
+		"status_addr", cfg.StatusAddr,
 	)
+
+	if cfg.StatusAddr != "" {
+		go runStatusServer(ctx, cfg.StatusAddr, db, st)
+	}
+
 	return sched.Run(ctx)
+}
+
+// runStatusServer starts the local HTML status page. It is intended for
+// CLI/dev runs — the cluster deployment leaves STATUS_ADDR unset.
+func runStatusServer(ctx context.Context, addr string, db *storage.DB, st []*stations.Station) {
+	srv := &http.Server{
+		Addr: addr,
+		Handler: (&status.Server{
+			Storage:  db,
+			Stations: st,
+		}).Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = srv.Shutdown(shutdownCtx)
+	}()
+	slog.Info("status server listening", "addr", addr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		slog.Error("status server failed", "err", err)
+	}
 }
 
 func buildStations(cfg *config.Config) []*stations.Station {

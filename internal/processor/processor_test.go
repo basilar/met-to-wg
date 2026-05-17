@@ -3,6 +3,7 @@ package processor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -92,6 +93,15 @@ func (s *fakeStorage) InsertObservation(_ context.Context, obs *observation.Obse
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.rows[key(obs.Datetime, obs.Location)] = obs
+	return nil
+}
+
+func (s *fakeStorage) MarkUploaded(_ context.Context, t time.Time, loc int, _ time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.rows[key(t, loc)]; !ok {
+		return fmt.Errorf("mark uploaded: no row for %v/%d", t, loc)
+	}
 	return nil
 }
 

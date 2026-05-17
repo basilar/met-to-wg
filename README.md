@@ -30,6 +30,7 @@ Kubernetes pod on a NAS) with:
     internal/healthcheck/          healthchecks.io ping
     internal/processor/            per-tick orchestration
     internal/scheduler/            tick-driven main loop
+    internal/status/               optional local HTML status page (CLI only)
     testdata/                      fixture HTML used by parser + integration tests
     migrations/                    (lives under internal/storage/migrations/)
 
@@ -240,6 +241,7 @@ the process to exit at startup with a structured-log error.
 | `USER_AGENT`                   | no       | `met-to-wg/1.0`      | Sent on outgoing requests.               |
 | `WINDGURU_BASE_URL`            | no       | upstream production  | Useful for staging / testing.            |
 | `HEALTHCHECK_URL`              | no       | (disabled)           | e.g. `https://hc-ping.com/<uuid>`.       |
+| `STATUS_ADDR`                  | no       | (disabled)           | Listen addr for the local status page, e.g. `127.0.0.1:8080`. CLI only — leave unset in k8s. |
 | `CSOPAK_WEATHER_UID`           | per stn  | —                    | Disable Csopak by leaving empty.         |
 | `CSOPAK_WEATHER_API_PASSWORD`  | per stn  | —                    |                                          |
 | `FURED_WEATHER_UID`            | per stn  | —                    | Disable Balatonfüred by leaving empty.   |
@@ -267,4 +269,19 @@ At least one station must be configured.
 - **Upload-after-persist.** If the Windguru POST fails, the row is
   already in SQLite — a future tick will *not* try to re-upload it
   (the dedup check short-circuits). Use the Windguru UI to backfill if
-  this matters.
+  this matters. On success the row's `uploaded_at` column is stamped;
+  the status page uses that to tell pulled vs. uploaded apart.
+
+## Local status page
+
+A tiny HTML status page is available when `STATUS_ADDR` is set:
+
+    STATUS_ADDR=127.0.0.1:8080 sops exec-env secrets.enc.yaml './met-to-wg'
+    # then open http://127.0.0.1:8080/
+
+It shows, per station, how many measurements were pulled and uploaded
+today and this week (day/week boundaries are local `Europe/Budapest`
+midnight / Monday 00:00), plus the latest measurement values. The page
+auto-refreshes every 30s. There is no auth — it reads the live SQLite
+DB directly, so bind to `127.0.0.1` only and **leave `STATUS_ADDR`
+unset in the cluster deployment**.

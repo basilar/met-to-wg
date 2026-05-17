@@ -150,9 +150,103 @@ func (d *DB) InsertObservation(ctx context.Context, obs *observation.Observation
 	return nil
 }
 
+// MarkUploaded stamps the row identified by (datetime, location) with the
+// supplied upload time. Used by the processor after a successful Windguru
+// upload so the status page can distinguish pulled vs uploaded counts.
+//
+// Rows whose upload failed remain with uploaded_at = NULL; the dedup logic in
+// the processor means we will not retry them, which matches the documented
+// one-shot upload behavior.
+func (d *DB) MarkUploaded(ctx context.Context, datetime time.Time, location int, uploadedAt time.Time) error {
+	_, err := d.db.ExecContext(ctx,
+		`UPDATE observation SET uploaded_at = ? WHERE datetime = ? AND location = ?`,
+		uploadedAt.UTC().Format(time.RFC3339),
+		datetime.UTC().Format(time.RFC3339),
+		location,
+	)
+	if err != nil {
+		return fmt.Errorf("mark uploaded: %w", err)
+	}
+	return nil
+}
+
 // CountObservations is exposed for tests and ops poking.
 func (d *DB) CountObservations(ctx context.Context) (int, error) {
 	var n int
 	err := d.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM observation`).Scan(&n)
 	return n, err
+}
+
+// StationStats aggregates counts and the most recent observation for a single
+// station. dayStart and weekStart are the inclusive lower bounds; they should
+// already be in UTC.
+//
+// Counts use uploaded_at for uploads (so they reflect when we actually pushed
+// to Windguru) and the source-reported datetime for pulled observations.
+type StationStats struct {
+	PulledToday    int
+	PulledWeek     int
+	UploadedToday  int
+	UploadedWeek   int
+	Latest         *observation.Observation
+	LatestUploaded sql.NullTime
+}
+
+// StationStats returns counts and the latest observation for a location.
+func (d *DB) StationStats(ctx context.Context, location int, dayStart, weekStart time.Time) (StationStats, error) {
+	var s StationStats
+
+	dayStartStr := dayStart.UTC().Format(time.RFC3339)
+	weekStartStr := weekStart.UTC().Format(time.RFC3339)
+
+	err := d.db.QueryRowContext(ctx, `
+		SELECT
+			COUNT(CASE WHEN datetime >= ? THEN 1 END),
+			COUNT(CASE WHEN datetime >= ? THEN 1 END),
+			COUNT(CASE WHEN uploaded_at IS NOT NULL AND uploaded_at >= ? THEN 1 END),
+			COUNT(CASE WHEN uploaded_at IS NOT NULL AND uploaded_at >= ? THEN 1 END)
+		FROM observation WHERE location = ?`,
+		dayStartStr, weekStartStr, dayStartStr, weekStartStr, location,
+	).Scan(&s.PulledToday, &s.PulledWeek, &s.UploadedToday, &s.UploadedWeek)
+	if err != nil {
+		return s, fmt.Errorf("station counts: %w", err)
+	}
+
+	var (
+		dt          string
+		uploadedAt  sql.NullString
+		obs         observation.Observation
+	)
+	row := d.db.QueryRowContext(ctx, `
+		SELECT datetime, mslp, rh, temperature, water_temperature,
+		       wind_avg, wind_direction, wind_max, uploaded_at
+		FROM observation WHERE location = ?
+		ORDER BY datetime DESC LIMIT 1`, location)
+	err = row.Scan(
+		&dt,
+		&obs.MSLP, &obs.RH, &obs.Temperature, &obs.WaterTemperature,
+		&obs.WindAvg, &obs.WindDirection, &obs.WindMax,
+		&uploadedAt,
+	)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return s, nil
+	case err != nil:
+		return s, fmt.Errorf("latest observation: %w", err)
+	}
+	parsed, err := time.Parse(time.RFC3339, dt)
+	if err != nil {
+		return s, fmt.Errorf("parse latest datetime: %w", err)
+	}
+	obs.Datetime = parsed
+	obs.Location = location
+	s.Latest = &obs
+	if uploadedAt.Valid {
+		t, err := time.Parse(time.RFC3339, uploadedAt.String)
+		if err != nil {
+			return s, fmt.Errorf("parse uploaded_at: %w", err)
+		}
+		s.LatestUploaded = sql.NullTime{Time: t, Valid: true}
+	}
+	return s, nil
 }

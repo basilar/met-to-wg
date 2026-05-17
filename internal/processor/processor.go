@@ -28,6 +28,7 @@ type Fetcher interface {
 type Storage interface {
 	HasObservation(ctx context.Context, datetime time.Time, location int) (bool, error)
 	InsertObservation(ctx context.Context, obs *observation.Observation) error
+	MarkUploaded(ctx context.Context, datetime time.Time, location int, uploadedAt time.Time) error
 }
 
 // Uploader forwards a fresh observation to Windguru.
@@ -129,6 +130,11 @@ func (p *Processor) processStation(ctx context.Context, st *stations.Station) {
 		// transient outage caused a miss.
 		logger.Error("windguru upload failed", "err", err)
 		return
+	}
+	if err := p.Storage.MarkUploaded(ctx, obs.Datetime, obs.Location, time.Now()); err != nil {
+		// The upload itself succeeded; failing to stamp it just leaves the
+		// status page slightly off for this row.
+		logger.Warn("mark uploaded failed", "err", err)
 	}
 	logger.Info("uploaded new observation", "datetime", obs.Datetime)
 }

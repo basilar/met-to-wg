@@ -52,6 +52,9 @@ collaborators are interfaces so every test substitutes a fake:
 - `cmd/met-to-wg/main.go` wires concrete implementations
   (`httpx.New`, `windguru.New`, `storage.Open`, `healthcheck.New`,
   `scheduler.RealTicker`) into a `processor.Processor` and a `scheduler.Scheduler`.
+  If `STATUS_ADDR` is set it also starts an `internal/status` HTTP server in a
+  goroutine; the cluster deployment leaves the variable unset so no listener
+  runs there.
 - `scheduler.Scheduler` runs an initial tick immediately, then drives
   `processor.Tick` on every signal from an injected `TickSource` until the
   context is cancelled. Tests pass a fake channel so there are no wall-clock sleeps.
@@ -61,7 +64,10 @@ collaborators are interfaces so every test substitutes a fake:
   error — all failures are swallowed at the station boundary.
 - For each station the flow is: `Fetcher.Get` → `Station.Parse` →
   `Storage.HasObservation` (dedup) → `Storage.InsertObservation` →
-  `Uploader.Upload`. The healthcheck ping fires once per tick, before the fan-out.
+  `Uploader.Upload` → `Storage.MarkUploaded`. The healthcheck ping fires once
+  per tick, before the fan-out. `MarkUploaded` stamps `observation.uploaded_at`
+  on success; rows whose upload failed keep it NULL, which is how the status
+  page distinguishes pulled from uploaded counts.
 
 Stations are values, not types. `stations.Station` bundles `Name`, `URL`,
 `Location` (a stable int persisted to the DB — `LocCsopak=1`,
@@ -93,6 +99,14 @@ unique index on `(datetime, location)`.
 determinism. Sent as HTTP GET (Windguru parses the query string regardless of
 verb). `Now` is injectable for deterministic tests.
 
+`internal/status` is a tiny `net/http` handler that renders a card-per-station
+HTML overview (pulled/uploaded counts for today and this week, latest
+measurement values). "Today" and "this week" boundaries are computed in
+`Europe/Budapest` and converted to UTC before querying. The package depends on
+`storage.DB.StationStats`, which is the only place that reads `uploaded_at`.
+The template lives next to the code as an embedded `index.html.tmpl`. The
+server is opt-in via `STATUS_ADDR` and is intended for local CLI runs only.
+
 ## Quirks to preserve
 
 These are intentional behaviors, not bugs — don't "fix" them without explicit
@@ -109,6 +123,12 @@ direction:
   `Upload` fails, the row is in SQLite and the dedup check will prevent any
   future tick from retrying the upload. Backfill via Windguru's UI if needed.
 - **Per-tick station failures are swallowed and logged**, never propagated.
+- **The status server is CLI-only.** `STATUS_ADDR` is deliberately absent from
+  the k8s deployment; do not add it without thinking about exposure (no auth,
+  reads the live SQLite DB). Pre-existing rows from before the
+  `uploaded_at` migration have NULL in that column, so upload counts can look
+  artificially low until enough fresh observations accumulate — this is not a
+  bug to backfill.
 
 ## Secrets
 
