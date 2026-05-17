@@ -42,11 +42,15 @@ spec:
       initContainers:
         # Restore SQLite from NFS replica before the scraper starts.
         # `-if-replica-exists` makes the first-ever start a no-op (empty DB).
+        # `-if-db-not-exists` skips restore when the PVC already has the DB
+        # (any restart after the initial bootstrap), which would otherwise
+        # fail with "output path already exists".
         - name: litestream-restore
           image: litestream/litestream:0.3.13
           args:
             - restore
             - -if-replica-exists
+            - -if-db-not-exists
             - -config
             - /etc/litestream.yml
             - /data/weather.db
